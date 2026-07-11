@@ -2,7 +2,8 @@
 -- Place one block above the first planting cell, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.8"
+local VERSION = "2026-07-11.9"
+local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
 local defaults = {
@@ -296,6 +297,37 @@ local function cleanDarkOak()
   return true
 end
 
+local function updateSelf(url)
+  url = tostring(url or UPDATE_URL)
+  if not http or not http.get then
+    print("HTTP disabled; use wget.")
+    return false
+  end
+  print("Updating turtle...")
+  local ok, response = pcall(http.get, url)
+  if not ok or not response then
+    print("Update fetch failed.")
+    return false
+  end
+  local body = response.readAll() or ""
+  response.close()
+  if #body < 1000 or not string.find(body, "Sapling Farm Cleanup Turtle", 1, true) then
+    print("Update looked invalid.")
+    return false
+  end
+  local h = fs.open("startup.lua", "w")
+  if not h then
+    print("Cannot write startup.lua.")
+    return false
+  end
+  h.write(body)
+  h.close()
+  print("Updated; rebooting.")
+  sleep(1)
+  os.reboot()
+  return true
+end
+
 loadConfig()
 
 local wirelessOpen = openWireless()
@@ -308,7 +340,7 @@ if not fs.exists(CONFIG_FILE) then setup() end
 print("Sapling cleanup turtle " .. VERSION)
 print("Grid " .. tostring(config.width) .. "x" .. tostring(config.depth))
 print("Protocol: " .. config.protocol)
-print("Commands: clean, setup, exit")
+print("Commands: clean, update, setup, exit")
 
 local running = true
 
@@ -318,8 +350,12 @@ local function rednetLoop()
       sleep(1)
     else
       local sender, msg = rednet.receive(config.protocol, 1)
-      if sender and type(msg) == "table" and msg.type == "sapfarm" and msg.cmd == "clean_dark_oak" then
-        cleanDarkOak()
+      if sender and type(msg) == "table" and msg.type == "sapfarm" then
+        if msg.cmd == "clean_dark_oak" then
+          cleanDarkOak()
+        elseif msg.cmd == "update_turtle" then
+          updateSelf(msg.url)
+        end
       end
     end
   end
@@ -331,6 +367,8 @@ local function commandLoop()
     local cmd = string.lower(read() or "")
     if cmd == "clean" then
       cleanDarkOak()
+    elseif cmd == "update" then
+      updateSelf()
     elseif cmd == "setup" then
       setup()
     elseif cmd == "exit" then

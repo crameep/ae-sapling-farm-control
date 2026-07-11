@@ -1,8 +1,9 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.5"
+local VERSION = "2026-07-11.6"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
+local TURTLE_UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_config"
 local STATE_FILE = ".sapfarm_state"
 local DEBUG_FILE = ".sapfarm_debug"
@@ -549,12 +550,22 @@ local function cleanDarkOak()
   setStatus("Sent turtle cleanup")
 end
 
+local function updateTurtles()
+  if not openWireless() then return false end
+  rednet.broadcast({
+    type = "sapfarm",
+    cmd = "update_turtle",
+    url = TURTLE_UPDATE_URL,
+  }, config.turtleProtocol)
+  return true
+end
+
 local function updateSelf()
   if not http or not http.get then
     setStatus("HTTP disabled; use wget", true)
     return
   end
-  setStatus("Updating...")
+  setStatus("Updating controller and turtle...")
   local ok, response = pcall(http.get, UPDATE_URL)
   if not ok or not response then
     setStatus("Update fetch failed", true)
@@ -573,6 +584,7 @@ local function updateSelf()
   end
   h.write(body)
   h.close()
+  updateTurtles()
   setStatus("Updated; rebooting")
   sleep(1)
   os.reboot()
