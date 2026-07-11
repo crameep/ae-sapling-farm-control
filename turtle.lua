@@ -2,7 +2,7 @@
 -- Place one block above the first planting cell, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.7"
+local VERSION = "2026-07-11.8"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
 local defaults = {
@@ -95,13 +95,29 @@ local function face(target)
   end
 end
 
+local function isSaplingName(name)
+  return string.find(name, "sapling", 1, true) ~= nil
+    or name == "minecraft:mangrove_propagule"
+end
+
+local function isSafeForwardDig(name)
+  if isSaplingName(name) then return true end
+  return string.find(name, "leaves", 1, true) ~= nil
+    or string.find(name, "_log", 1, true) ~= nil
+    or string.find(name, "_wood", 1, true) ~= nil
+end
+
 local function forward()
   local tries = 0
   while not turtle.forward() do
     tries = tries + 1
     if tries > 8 then error("blocked while moving") end
-    local hasBlock = turtle.inspect()
+    local hasBlock, data = turtle.inspect()
     if hasBlock then
+      local name = data and data.name or "unknown block"
+      if not isSafeForwardDig(name) then
+        error("blocked by protected block: " .. name)
+      end
       if turtle.getItemCount(16) > 0 then
         error("inventory full while blocked; empty turtle or storage")
       end
@@ -153,8 +169,7 @@ local function inspectDownName()
 end
 
 local function isSapling(name)
-  return string.find(name, "sapling", 1, true) ~= nil
-    or name == "minecraft:mangrove_propagule"
+  return isSaplingName(name)
 end
 
 local function isIn2x2(map, cx, cz)
