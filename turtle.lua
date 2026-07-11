@@ -2,7 +2,7 @@
 -- Place one block above the first planting cell, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.9"
+local VERSION = "2026-07-11.10"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -173,6 +173,12 @@ local function isSapling(name)
   return isSaplingName(name)
 end
 
+local function isTreeDebris(name)
+  return string.find(name, "leaves", 1, true) ~= nil
+    or string.find(name, "_log", 1, true) ~= nil
+    or string.find(name, "_wood", 1, true) ~= nil
+end
+
 local function isIn2x2(map, cx, cz)
   local name = map[key(cx, cz)]
   if not isSapling(name) then return false end
@@ -278,13 +284,13 @@ local function cleanDarkOak()
   for row = 1, config.depth do
     for col = 1, config.width do
       local name = map[key(col, row)]
-      if isSapling(name) and not isIn2x2(map, col, row) then
+      if (isSapling(name) and not isIn2x2(map, col, row)) or isTreeDebris(name) then
         if not hasFreeSlot() then
           serviceHome()
         end
         goTo(col, row)
         local current = inspectDownName()
-        if current == name then
+        if current == name and ((isSapling(current) and not isIn2x2(map, col, row)) or isTreeDebris(current)) then
           turtle.digDown()
           removed = removed + 1
         end
@@ -293,7 +299,7 @@ local function cleanDarkOak()
   end
 
   serviceHome()
-  print("Removed " .. tostring(removed) .. " stray saplings.")
+  print("Removed " .. tostring(removed) .. " stray saplings/tree blocks.")
   return true
 end
 
