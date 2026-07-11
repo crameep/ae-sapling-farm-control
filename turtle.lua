@@ -2,7 +2,7 @@
 -- Place one block above the first planting cell, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.10"
+local VERSION = "2026-07-11.11"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -169,6 +169,12 @@ local function inspectDownName()
   return ""
 end
 
+local function inspectUpName()
+  local ok, data = turtle.inspectUp()
+  if ok and data and data.name then return data.name end
+  return ""
+end
+
 local function isSapling(name)
   return isSaplingName(name)
 end
@@ -283,6 +289,19 @@ local function cleanDarkOak()
   local removed = 0
   for row = 1, config.depth do
     for col = 1, config.width do
+      goTo(col, row)
+      local upName = inspectUpName()
+      if isTreeDebris(upName) then
+        if not hasFreeSlot() then
+          serviceHome()
+          goTo(col, row)
+        end
+        if isTreeDebris(inspectUpName()) then
+          turtle.digUp()
+          removed = removed + 1
+        end
+      end
+
       local name = map[key(col, row)]
       if (isSapling(name) and not isIn2x2(map, col, row)) or isTreeDebris(name) then
         if not hasFreeSlot() then
