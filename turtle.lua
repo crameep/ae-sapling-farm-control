@@ -1,8 +1,8 @@
 -- Sapling Farm Cleanup Turtle
 -- Place one block above the first planting cell, facing east.
--- It maps the farm grid, then breaks dark oak saplings that are not part of a 2x2.
+-- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.6"
+local VERSION = "2026-07-11.7"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
 local defaults = {
@@ -101,7 +101,12 @@ local function forward()
     tries = tries + 1
     if tries > 8 then error("blocked while moving") end
     local hasBlock = turtle.inspect()
-    if hasBlock then turtle.dig() end
+    if hasBlock then
+      if turtle.getItemCount(16) > 0 then
+        error("inventory full while blocked; empty turtle or storage")
+      end
+      turtle.dig()
+    end
     turtle.attack()
     sleep(0.2)
   end
@@ -147,11 +152,14 @@ local function inspectDownName()
   return ""
 end
 
-local function isDarkOak(name)
-  return name == "minecraft:dark_oak_sapling"
+local function isSapling(name)
+  return string.find(name, "sapling", 1, true) ~= nil
+    or name == "minecraft:mangrove_propagule"
 end
 
 local function isIn2x2(map, cx, cz)
+  local name = map[key(cx, cz)]
+  if not isSapling(name) then return false end
   local starts = {
     { cx - 1, cz - 1 },
     { cx, cz - 1 },
@@ -161,13 +169,20 @@ local function isIn2x2(map, cx, cz)
   for _, start in ipairs(starts) do
     local sx, sz = start[1], start[2]
     if sx >= 1 and sz >= 1 and sx < config.width and sz < config.depth then
-      if isDarkOak(map[key(sx, sz)])
-        and isDarkOak(map[key(sx + 1, sz)])
-        and isDarkOak(map[key(sx, sz + 1)])
-        and isDarkOak(map[key(sx + 1, sz + 1)]) then
+      if map[key(sx, sz)] == name
+        and map[key(sx + 1, sz)] == name
+        and map[key(sx, sz + 1)] == name
+        and map[key(sx + 1, sz + 1)] == name then
         return true
       end
     end
+  end
+  return false
+end
+
+local function hasFreeSlot()
+  for slot = 1, 16 do
+    if turtle.getItemCount(slot) == 0 then return true end
   end
   return false
 end
@@ -181,8 +196,55 @@ local function dropInventoryDown()
   turtle.select(1)
 end
 
+local function refuelFromInventory()
+  local fueled = false
+  for slot = 1, 16 do
+    turtle.select(slot)
+    if turtle.refuel(0) then
+      turtle.refuel()
+      fueled = true
+    end
+  end
+  turtle.select(1)
+  return fueled
+end
+
+local function refuelFromDown()
+  if not config.dropDownAtHome then return false end
+  local fueled = false
+  for _ = 1, 16 do
+    local slot
+    for candidate = 1, 16 do
+      if turtle.getItemCount(candidate) == 0 then
+        slot = candidate
+        break
+      end
+    end
+    if not slot then break end
+    turtle.select(slot)
+    if not turtle.suckDown(1) then break end
+    if turtle.refuel(0) then
+      turtle.refuel()
+      fueled = true
+    else
+      turtle.dropDown()
+    end
+  end
+  turtle.select(1)
+  return fueled
+end
+
+local function serviceHome()
+  goHome()
+  dropInventoryDown()
+  refuelFromDown()
+  refuelFromInventory()
+end
+
 local function cleanDarkOak()
   x, z, dir = 1, 1, 1
+  refuelFromDown()
+  refuelFromInventory()
   if not checkFuel() then
     print("Not enough fuel.")
     return false
@@ -200,10 +262,13 @@ local function cleanDarkOak()
   for row = 1, config.depth do
     for col = 1, config.width do
       local name = map[key(col, row)]
-      if isDarkOak(name) and not isIn2x2(map, col, row) then
+      if isSapling(name) and not isIn2x2(map, col, row) then
+        if not hasFreeSlot() then
+          serviceHome()
+        end
         goTo(col, row)
         local current = inspectDownName()
-        if isDarkOak(current) then
+        if current == name then
           turtle.digDown()
           removed = removed + 1
         end
@@ -211,9 +276,8 @@ local function cleanDarkOak()
     end
   end
 
-  goHome()
-  dropInventoryDown()
-  print("Removed " .. tostring(removed) .. " stray dark oak saplings.")
+  serviceHome()
+  print("Removed " .. tostring(removed) .. " stray saplings.")
   return true
 end
 
