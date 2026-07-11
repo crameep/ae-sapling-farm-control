@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.4"
+local VERSION = "2026-07-11.5"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local CONFIG_FILE = ".sapfarm_config"
 local STATE_FILE = ".sapfarm_state"
@@ -14,6 +14,7 @@ local defaults = {
   targetBuffer = 256,
   exportBatch = 64,
   refreshSeconds = 5,
+  turtleProtocol = "sapfarm",
 }
 
 local config = {}
@@ -63,6 +64,7 @@ local function mergeConfig(loaded)
   if type(merged.targetBuffer) ~= "number" then merged.targetBuffer = defaults.targetBuffer end
   if type(merged.exportBatch) ~= "number" then merged.exportBatch = defaults.exportBatch end
   if type(merged.refreshSeconds) ~= "number" then merged.refreshSeconds = defaults.refreshSeconds end
+  if type(merged.turtleProtocol) ~= "string" or merged.turtleProtocol == "" then merged.turtleProtocol = defaults.turtleProtocol end
   return merged
 end
 
@@ -367,6 +369,21 @@ local screen = findMonitor()
 local mon = screen.device
 local buttons = {}
 
+local function openWireless()
+  if not rednet or not rednet.open then return false end
+  local opened = false
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "modem" then
+      local modem = peripheral.wrap(name)
+      if modem and modem.isWireless and modem.isWireless() then
+        if not rednet.isOpen(name) then rednet.open(name) end
+        opened = rednet.isOpen(name) or opened
+      end
+    end
+  end
+  return opened
+end
+
 local function color(c, fallback)
   return c or fallback or colors.white
 end
@@ -431,6 +448,7 @@ local function draw()
   button("update", 26, 3, 8, "UPDATE", colors.white, colors.purple)
   button("setup", 35, 3, 7, "SETUP", colors.white, colors.gray)
   button("debug", 43, 3, 7, "DEBUG", colors.black, colors.orange)
+  button("clean", 51, 3, 8, "CLEAN", colors.black, colors.yellow)
 
   writeAt(2, 5, "Selected: " .. selectedLabel(), colors.yellow, colors.black)
   writeAt(2, 6, "AE Count: " .. fmt(state.selectedAmount) .. "  Target: " .. fmt(config.targetBuffer), colors.lightGray, colors.black)
@@ -522,6 +540,15 @@ local function setFarmOn(value)
   setStatus(state.farmOn and "Farm feed enabled" or "Farm feed disabled")
 end
 
+local function cleanDarkOak()
+  if not openWireless() then
+    setStatus("No wireless modem for turtle", true)
+    return
+  end
+  rednet.broadcast({ type = "sapfarm", cmd = "clean_dark_oak" }, config.turtleProtocol)
+  setStatus("Sent turtle cleanup")
+end
+
 local function updateSelf()
   if not http or not http.get then
     setStatus("HTTP disabled; use wget", true)
@@ -584,6 +611,9 @@ local function setupScreen()
   write("Export batch [" .. tostring(config.exportBatch) .. "]: ")
   v = tonumber(read())
   if v then config.exportBatch = v end
+  write("Turtle rednet protocol [" .. config.turtleProtocol .. "]: ")
+  v = read()
+  if v ~= "" then config.turtleProtocol = v end
   saveConfig()
   print("Saved. Rebooting.")
   sleep(1)
@@ -602,6 +632,8 @@ local function handleAction(id)
     setupScreen()
   elseif id == "debug" then
     dumpDebug()
+  elseif id == "clean" then
+    cleanDarkOak()
   elseif id == "prev" then
     state.page = math.max(1, state.page - 1)
     saveState()
@@ -660,6 +692,7 @@ local function eventLoop()
       if side == keys.r then scanSaplings(true) end
       if side == keys.s then setupScreen() end
       if side == keys.d then dumpDebug() end
+      if side == keys.c then cleanDarkOak() end
       if side == keys.space then setFarmOn(not state.farmOn) end
     end
   end

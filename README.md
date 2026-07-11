@@ -76,6 +76,45 @@ Keyboard shortcuts:
 - `r`: refresh
 - `u`: update
 - `s`: setup
+- `c`: trigger cleanup turtle
+
+## Optional Cleanup Turtle
+
+The `CLEAN` button can trigger a wireless turtle to remove stray dark oak saplings that are not part of a valid 2x2 dark oak cluster.
+
+Install on a wireless turtle:
+
+```lua
+delete startup.lua
+wget https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua startup.lua
+reboot
+```
+
+Place the turtle:
+
+- one block above the first planting cell
+- facing east
+- at the northwest/start corner of the farm grid
+- with a wireless modem attached
+- with enough fuel for a full scan and return trip
+
+On first boot, set the grid width/depth. The app and turtle default to the same Rednet protocol: `sapfarm`.
+
+Behavior:
+
+- maps every planting cell first
+- detects `minecraft:dark_oak_sapling`
+- keeps any sapling that belongs to a complete 2x2 dark oak cluster
+- digs lone/misaligned dark oak saplings
+- returns to the start position
+
+Optional turtle command line:
+
+```lua
+clean
+setup
+exit
+```
 
 ## SFM Pairing
 
