@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.3"
+local VERSION = "2026-07-11.4"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local CONFIG_FILE = ".sapfarm_config"
 local STATE_FILE = ".sapfarm_state"
@@ -203,6 +203,40 @@ local function isSapling(item, key)
   return false
 end
 
+local function countTable(t)
+  local c = 0
+  for _ in pairs(t or {}) do c = c + 1 end
+  return c
+end
+
+local function callBridge(name, arg)
+  local f = bridge[name]
+  if type(f) ~= "function" then return false, nil, "missing" end
+  local ok, result, err
+  if arg == nil then
+    ok, result, err = pcall(f)
+  else
+    ok, result, err = pcall(f, arg)
+  end
+  if ok then return true, result, err end
+  return false, nil, result
+end
+
+local function bridgeBool(name)
+  local ok, result = callBridge(name)
+  if ok then return tostring(result) end
+  return "unknown"
+end
+
+local function bridgeMethods()
+  if type(peripheral.getName) ~= "function" or type(peripheral.getMethods) ~= "function" then return {} end
+  local name = peripheral.getName(bridge)
+  if not name then return {} end
+  local ok, methods = pcall(peripheral.getMethods, name)
+  if ok and type(methods) == "table" then return methods end
+  return {}
+end
+
 local function writeDebugDump(items)
   local h = fs.open(DEBUG_FILE, "w")
   if not h then return false end
@@ -211,6 +245,10 @@ local function writeDebugDump(items)
   h.writeLine("AE Sapling Farm Control debug")
   h.writeLine("version=" .. VERSION)
   h.writeLine("time=" .. tostring(os.epoch and os.epoch("utc") or os.clock()))
+  h.writeLine("isConnected=" .. bridgeBool("isConnected"))
+  h.writeLine("isOnline=" .. bridgeBool("isOnline"))
+  h.writeLine("methods=" .. table.concat(bridgeMethods(), ","))
+  h.writeLine("received_items=" .. tostring(countTable(items)))
   h.writeLine("")
   for key, item in pairs(items or {}) do
     total = total + 1
@@ -233,11 +271,30 @@ local function writeDebugDump(items)
 end
 
 local function listBridgeItems()
-  local ok, result = pcall(function() return bridge.listItems() end)
-  if ok and type(result) == "table" then return result end
-  ok, result = pcall(function() return bridge.listItems({}) end)
-  if ok and type(result) == "table" then return result end
-  setStatus("ME item scan failed", result)
+  local calls = {
+    {"getItems", {}},
+    {"listItems", nil},
+    {"listItems", {}},
+  }
+
+  local lastError = nil
+  local empty = nil
+  for _, call in ipairs(calls) do
+    local ok, result, err = callBridge(call[1], call[2])
+    if ok and type(result) == "table" then
+      if countTable(result) > 0 then return result end
+      if not empty then empty = result end
+    elseif err and err ~= "missing" then
+      lastError = tostring(err)
+    end
+  end
+
+  if empty then
+    setStatus("ME returned 0 items", nil)
+    return empty
+  end
+
+  setStatus("ME item scan failed", lastError)
   return {}
 end
 
