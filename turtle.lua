@@ -1,8 +1,8 @@
 -- Sapling Farm Cleanup Turtle
--- Place one block above the first planting cell, facing east.
+-- Place one block behind the northwest planting cell, one block above the farm, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.11"
+local VERSION = "2026-07-11.12"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -14,7 +14,7 @@ local defaults = {
 }
 
 local config = {}
-local x, z, dir = 1, 1, 1 -- 0 north, 1 east, 2 south, 3 west
+local x, z, dir = 0, 1, 1 -- 0 north, 1 east, 2 south, 3 west; home is x=0,z=1
 
 local function copyDefaults()
   local t = {}
@@ -141,7 +141,7 @@ local function goTo(tx, tz)
 end
 
 local function goHome()
-  goTo(1, 1)
+  goTo(0, 1)
   face(1)
 end
 
@@ -270,7 +270,7 @@ local function serviceHome()
 end
 
 local function cleanDarkOak()
-  x, z, dir = 1, 1, 1
+  x, z, dir = 0, 1, 1
   refuelFromDown()
   refuelFromInventory()
   if not checkFuel() then
