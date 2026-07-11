@@ -2,7 +2,7 @@
 -- Place one block above the first planting cell, facing east.
 -- It maps the farm grid, then breaks dark oak saplings that are not part of a 2x2.
 
-local VERSION = "2026-07-11.5"
+local VERSION = "2026-07-11.6"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
 local defaults = {
@@ -100,6 +100,8 @@ local function forward()
   while not turtle.forward() do
     tries = tries + 1
     if tries > 8 then error("blocked while moving") end
+    local hasBlock = turtle.inspect()
+    if hasBlock then turtle.dig() end
     turtle.attack()
     sleep(0.2)
   end
