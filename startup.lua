@@ -1,10 +1,11 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.2"
+local VERSION = "2026-07-11.3"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local CONFIG_FILE = ".sapfarm_config"
 local STATE_FILE = ".sapfarm_state"
+local DEBUG_FILE = ".sapfarm_debug"
 
 local defaults = {
   bridgeExportSide = "up",
@@ -139,7 +140,8 @@ local function itemAmount(item)
   return tonumber(item.amount or item.count or item.qty or item.size or fp.amount or fp.count or nested.amount or nested.count) or 0
 end
 
-local function itemName(item)
+local function itemName(item, key)
+  if type(key) == "string" and string.find(key, ":", 1, true) then return key end
   if type(item) ~= "table" then return "" end
   local fp = type(item.fingerprint) == "table" and item.fingerprint or {}
   local nested = type(item.item) == "table" and item.item or {}
@@ -161,7 +163,7 @@ local function itemName(item)
   ) or ""
 end
 
-local function itemLabel(item)
+local function itemLabel(item, key)
   if type(item) ~= "table" then return "unknown" end
   local fp = type(item.fingerprint) == "table" and item.fingerprint or {}
   local nested = type(item.item) == "table" and item.item or {}
@@ -173,7 +175,7 @@ local function itemLabel(item)
     nested.label,
     fp.displayName,
     fp.label,
-    itemName(item)
+    itemName(item, key)
   ) or "unknown")
 end
 
@@ -191,13 +193,43 @@ local function gatherText(value, depth)
   return table.concat(parts, " ")
 end
 
-local function isSapling(item)
-  local name = string.lower(itemName(item))
-  local text = string.lower(gatherText(item))
+local function isSapling(item, key)
+  local name = string.lower(itemName(item, key))
+  local text = string.lower(tostring(key or "") .. gatherText(item))
   if string.find(name, "sapling", 1, true) then return true end
+  if string.find(text, "sapling", 1, true) then return true end
   if string.find(text, "minecraft:saplings", 1, true) then return true end
   if string.find(text, "c:saplings", 1, true) then return true end
   return false
+end
+
+local function writeDebugDump(items)
+  local h = fs.open(DEBUG_FILE, "w")
+  if not h then return false end
+  local total = 0
+  local samples = 0
+  h.writeLine("AE Sapling Farm Control debug")
+  h.writeLine("version=" .. VERSION)
+  h.writeLine("time=" .. tostring(os.epoch and os.epoch("utc") or os.clock()))
+  h.writeLine("")
+  for key, item in pairs(items or {}) do
+    total = total + 1
+    local text = string.lower(tostring(key or "") .. gatherText(item))
+    if samples < 40 and (samples < 20 or string.find(text, "sap", 1, true) or string.find(text, "tree", 1, true)) then
+      samples = samples + 1
+      h.writeLine("ITEM " .. tostring(samples))
+      h.writeLine("key=" .. tostring(key))
+      h.writeLine("name=" .. tostring(itemName(item, key)))
+      h.writeLine("label=" .. tostring(itemLabel(item, key)))
+      h.writeLine("amount=" .. tostring(itemAmount(item)))
+      h.writeLine(textutils.serialize(item))
+      h.writeLine("")
+    end
+  end
+  h.writeLine("total_items=" .. tostring(total))
+  h.writeLine("samples_written=" .. tostring(samples))
+  h.close()
+  return true
 end
 
 local function listBridgeItems()
@@ -219,9 +251,9 @@ local function scanSaplings(force)
   local found = {}
   local byName = {}
 
-  for _, item in pairs(items or {}) do
-    if isSapling(item) then
-      local name = itemName(item)
+  for key, item in pairs(items or {}) do
+    if isSapling(item, key) then
+      local name = itemName(item, key)
       local amount = itemAmount(item)
       if name ~= "" and amount > 0 then
         if byName[name] then
@@ -229,7 +261,7 @@ local function scanSaplings(force)
         else
           local entry = {
             name = name,
-            label = itemLabel(item),
+            label = itemLabel(item, key),
             amount = amount,
             raw = item,
           }
@@ -341,6 +373,7 @@ local function draw()
   button("refresh", 15, 3, 10, "REFRESH", colors.white, colors.blue)
   button("update", 26, 3, 8, "UPDATE", colors.white, colors.purple)
   button("setup", 35, 3, 7, "SETUP", colors.white, colors.gray)
+  button("debug", 43, 3, 7, "DEBUG", colors.black, colors.orange)
 
   writeAt(2, 5, "Selected: " .. selectedLabel(), colors.yellow, colors.black)
   writeAt(2, 6, "AE Count: " .. fmt(state.selectedAmount) .. "  Target: " .. fmt(config.targetBuffer), colors.lightGray, colors.black)
@@ -461,6 +494,15 @@ local function updateSelf()
   os.reboot()
 end
 
+local function dumpDebug()
+  local items = listBridgeItems()
+  if writeDebugDump(items) then
+    setStatus("Wrote " .. DEBUG_FILE)
+  else
+    setStatus("Debug write failed", true)
+  end
+end
+
 local function setupScreen()
   term.redirect(term.native())
   print("AE Sapling Farm Control setup")
@@ -501,6 +543,8 @@ local function handleAction(id)
     updateSelf()
   elseif id == "setup" then
     setupScreen()
+  elseif id == "debug" then
+    dumpDebug()
   elseif id == "prev" then
     state.page = math.max(1, state.page - 1)
     saveState()
@@ -558,6 +602,7 @@ local function eventLoop()
       if side == keys.u then updateSelf() end
       if side == keys.r then scanSaplings(true) end
       if side == keys.s then setupScreen() end
+      if side == keys.d then dumpDebug() end
       if side == keys.space then setFarmOn(not state.farmOn) end
     end
   end
