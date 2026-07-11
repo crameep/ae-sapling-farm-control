@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.6"
+local VERSION = "2026-07-11.7"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local TURTLE_UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_config"
@@ -29,6 +29,9 @@ local state = {
   lastError = nil,
   page = 1,
   filter = "",
+  turtleStatus = "unknown",
+  turtleProgress = "",
+  turtleLastSeen = 0,
 }
 
 local bridge = peripheral.find("me_bridge")
@@ -450,11 +453,17 @@ local function draw()
   button("setup", 35, 3, 7, "SETUP", colors.white, colors.gray)
   button("debug", 43, 3, 7, "DEBUG", colors.black, colors.orange)
   button("clean", 51, 3, 8, "CLEAN", colors.black, colors.yellow)
+  if w >= 80 then
+    button("turtle_home", 60, 3, 6, "HOME", colors.white, colors.brown)
+    button("turtle_stop", 67, 3, 6, "STOP", colors.white, colors.red)
+    button("turtle_status", 74, 3, 6, "STAT", colors.black, colors.lightBlue)
+  end
 
   writeAt(2, 5, "Selected: " .. selectedLabel(), colors.yellow, colors.black)
   writeAt(2, 6, "AE Count: " .. fmt(state.selectedAmount) .. "  Target: " .. fmt(config.targetBuffer), colors.lightGray, colors.black)
   writeAt(2, 7, "Export side: " .. config.bridgeExportSide .. "  Buffer peripheral: " .. (config.bufferPeripheral ~= "" and config.bufferPeripheral or "unset"), colors.lightGray, colors.black)
   writeAt(2, 8, "Status: " .. tostring(state.status or ""), state.lastError and colors.red or colors.cyan, colors.black)
+  writeAt(2, 9, "Turtle: " .. tostring(state.turtleStatus or "unknown") .. " " .. tostring(state.turtleProgress or ""), colors.lightBlue, colors.black)
 
   button("target_minus", 2, 10, 8, "-64", colors.white, colors.gray)
   button("target_plus", 11, 10, 8, "+64", colors.white, colors.gray)
@@ -541,13 +550,36 @@ local function setFarmOn(value)
   setStatus(state.farmOn and "Farm feed enabled" or "Farm feed disabled")
 end
 
-local function cleanDarkOak()
+local function sendTurtleCommand(cmd, extra)
   if not openWireless() then
     setStatus("No wireless modem for turtle", true)
-    return
+    return false
   end
-  rednet.broadcast({ type = "sapfarm", cmd = "clean_dark_oak" }, config.turtleProtocol)
+  local msg = extra or {}
+  msg.type = "sapfarm"
+  msg.cmd = cmd
+  rednet.broadcast(msg, config.turtleProtocol)
+  return true
+end
+
+local function cleanDarkOak()
+  if not sendTurtleCommand("clean_dark_oak") then return end
   setStatus("Sent turtle cleanup")
+end
+
+local function turtleHome()
+  if not sendTurtleCommand("turtle_home") then return end
+  setStatus("Sent turtle home")
+end
+
+local function turtleStop()
+  if not sendTurtleCommand("turtle_stop") then return end
+  setStatus("Sent turtle stop")
+end
+
+local function turtleStatus()
+  if not sendTurtleCommand("turtle_status") then return end
+  setStatus("Requested turtle status")
 end
 
 local function updateTurtles()
@@ -646,6 +678,12 @@ local function handleAction(id)
     dumpDebug()
   elseif id == "clean" then
     cleanDarkOak()
+  elseif id == "turtle_home" then
+    turtleHome()
+  elseif id == "turtle_stop" then
+    turtleStop()
+  elseif id == "turtle_status" then
+    turtleStatus()
   elseif id == "prev" then
     state.page = math.max(1, state.page - 1)
     saveState()
@@ -705,9 +743,34 @@ local function eventLoop()
       if side == keys.s then setupScreen() end
       if side == keys.d then dumpDebug() end
       if side == keys.c then cleanDarkOak() end
+      if side == keys.h then turtleHome() end
+      if side == keys.x then turtleStop() end
+      if side == keys.t then turtleStatus() end
       if side == keys.space then setFarmOn(not state.farmOn) end
     end
   end
 end
 
-parallel.waitForAny(drawLoop, workLoop, eventLoop)
+local function turtleStatusLoop()
+  while true do
+    if openWireless() then
+      local _, msg = rednet.receive(config.turtleProtocol, 1)
+      if type(msg) == "table" and msg.type == "sapfarm_status" then
+        state.turtleStatus = tostring(msg.phase or "unknown")
+        state.turtleLastSeen = os.clock()
+        local current = tonumber(msg.current) or 0
+        local total = tonumber(msg.total) or 0
+        local removed = tonumber(msg.removed) or 0
+        if total > 0 then
+          state.turtleProgress = tostring(current) .. "/" .. tostring(total) .. " removed " .. tostring(removed)
+        else
+          state.turtleProgress = "removed " .. tostring(removed)
+        end
+      end
+    else
+      sleep(1)
+    end
+  end
+end
+
+parallel.waitForAny(drawLoop, workLoop, eventLoop, turtleStatusLoop)

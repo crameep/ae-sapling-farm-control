@@ -2,7 +2,7 @@
 -- Place one block behind the northwest planting cell, one block above the farm, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.12"
+local VERSION = "2026-07-11.13"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -15,6 +15,14 @@ local defaults = {
 
 local config = {}
 local x, z, dir = 0, 1, 1 -- 0 north, 1 east, 2 south, 3 west; home is x=0,z=1
+local wirelessOpen = false
+local stopRequested = false
+local status = {
+  phase = "booting",
+  current = 0,
+  total = 0,
+  removed = 0,
+}
 
 local function copyDefaults()
   local t = {}
@@ -269,26 +277,76 @@ local function serviceHome()
   refuelFromInventory()
 end
 
+local function sendStatus(phase, current, total, removed)
+  status.phase = phase or status.phase or "idle"
+  status.current = current or status.current or 0
+  status.total = total or status.total or 0
+  status.removed = removed or status.removed or 0
+  if wirelessOpen then
+    rednet.broadcast({
+      type = "sapfarm_status",
+      phase = status.phase,
+      current = status.current,
+      total = status.total,
+      removed = status.removed,
+      version = VERSION,
+      fuel = turtle.getFuelLevel(),
+    }, config.protocol)
+  end
+end
+
+local function pollControl()
+  if not wirelessOpen then return stopRequested end
+  while true do
+    local _, msg = rednet.receive(config.protocol, 0)
+    if type(msg) ~= "table" or msg.type ~= "sapfarm" then break end
+    if msg.cmd == "turtle_stop" then
+      stopRequested = true
+      sendStatus("stopping")
+    elseif msg.cmd == "turtle_home" then
+      stopRequested = true
+      sendStatus("returning")
+    elseif msg.cmd == "turtle_status" then
+      sendStatus()
+    end
+  end
+  return stopRequested
+end
+
 local function cleanDarkOak()
   x, z, dir = 0, 1, 1
+  stopRequested = false
   refuelFromDown()
   refuelFromInventory()
   if not checkFuel() then
     print("Not enough fuel.")
+    sendStatus("no fuel")
     return false
   end
 
   local map = {}
+  local total = config.width * config.depth
   for row = 1, config.depth do
     for col = 1, config.width do
+      if pollControl() then
+        serviceHome()
+        sendStatus("stopped", (row - 1) * config.width + col, total, 0)
+        return false
+      end
       goTo(col, row)
       map[key(col, row)] = inspectDownName()
+      sendStatus("scanning", (row - 1) * config.width + col, total, 0)
     end
   end
 
   local removed = 0
   for row = 1, config.depth do
     for col = 1, config.width do
+      if pollControl() then
+        serviceHome()
+        sendStatus("stopped", (row - 1) * config.width + col, total, removed)
+        return false
+      end
       goTo(col, row)
       local upName = inspectUpName()
       if isTreeDebris(upName) then
@@ -299,6 +357,7 @@ local function cleanDarkOak()
         if isTreeDebris(inspectUpName()) then
           turtle.digUp()
           removed = removed + 1
+          sendStatus("cleaning", (row - 1) * config.width + col, total, removed)
         end
       end
 
@@ -312,13 +371,16 @@ local function cleanDarkOak()
         if current == name and ((isSapling(current) and not isIn2x2(map, col, row)) or isTreeDebris(current)) then
           turtle.digDown()
           removed = removed + 1
+          sendStatus("cleaning", (row - 1) * config.width + col, total, removed)
         end
       end
+      sendStatus("cleaning", (row - 1) * config.width + col, total, removed)
     end
   end
 
   serviceHome()
   print("Removed " .. tostring(removed) .. " stray saplings/tree blocks.")
+  sendStatus("home", total, total, removed)
   return true
 end
 
@@ -355,7 +417,7 @@ end
 
 loadConfig()
 
-local wirelessOpen = openWireless()
+wirelessOpen = openWireless()
 if not wirelessOpen then
   print("No wireless modem found. Attach a wireless modem to the turtle.")
 end
@@ -365,7 +427,8 @@ if not fs.exists(CONFIG_FILE) then setup() end
 print("Sapling cleanup turtle " .. VERSION)
 print("Grid " .. tostring(config.width) .. "x" .. tostring(config.depth))
 print("Protocol: " .. config.protocol)
-print("Commands: clean, update, setup, exit")
+sendStatus("idle")
+print("Commands: clean, home, stop, status, update, setup, exit")
 
 local running = true
 
@@ -378,6 +441,15 @@ local function rednetLoop()
       if sender and type(msg) == "table" and msg.type == "sapfarm" then
         if msg.cmd == "clean_dark_oak" then
           cleanDarkOak()
+        elseif msg.cmd == "turtle_home" then
+          stopRequested = true
+          serviceHome()
+          sendStatus("home")
+        elseif msg.cmd == "turtle_stop" then
+          stopRequested = true
+          sendStatus("stopped")
+        elseif msg.cmd == "turtle_status" then
+          sendStatus()
         elseif msg.cmd == "update_turtle" then
           updateSelf(msg.url)
         end
@@ -392,6 +464,15 @@ local function commandLoop()
     local cmd = string.lower(read() or "")
     if cmd == "clean" then
       cleanDarkOak()
+    elseif cmd == "home" then
+      stopRequested = true
+      serviceHome()
+      sendStatus("home")
+    elseif cmd == "stop" then
+      stopRequested = true
+      sendStatus("stopped")
+    elseif cmd == "status" then
+      sendStatus()
     elseif cmd == "update" then
       updateSelf()
     elseif cmd == "setup" then
