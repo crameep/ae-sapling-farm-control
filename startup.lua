@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.1"
+local VERSION = "2026-07-11.2"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local CONFIG_FILE = ".sapfarm_config"
 local STATE_FILE = ".sapfarm_state"
@@ -124,16 +124,57 @@ local function cleanLabel(text)
   return text
 end
 
+local function firstString(...)
+  for i = 1, select("#", ...) do
+    local value = select(i, ...)
+    if type(value) == "string" and value ~= "" then return value end
+  end
+  return nil
+end
+
 local function itemAmount(item)
-  return tonumber(item.amount or item.count or item.qty or item.size) or 0
+  if type(item) ~= "table" then return 0 end
+  local fp = type(item.fingerprint) == "table" and item.fingerprint or {}
+  local nested = type(item.item) == "table" and item.item or {}
+  return tonumber(item.amount or item.count or item.qty or item.size or fp.amount or fp.count or nested.amount or nested.count) or 0
 end
 
 local function itemName(item)
-  return tostring(item.name or item.id or item.fingerprint or "")
+  if type(item) ~= "table" then return "" end
+  local fp = type(item.fingerprint) == "table" and item.fingerprint or {}
+  local nested = type(item.item) == "table" and item.item or {}
+  return firstString(
+    item.name,
+    item.id,
+    item.registryName,
+    item.registry_name,
+    item.itemName,
+    item.item_name,
+    nested.name,
+    nested.id,
+    nested.registryName,
+    fp.name,
+    fp.id,
+    fp.registryName,
+    fp.item,
+    type(item.fingerprint) == "string" and item.fingerprint or nil
+  ) or ""
 end
 
 local function itemLabel(item)
-  return cleanLabel(item.displayName or item.label or item.name or item.id or "unknown")
+  if type(item) ~= "table" then return "unknown" end
+  local fp = type(item.fingerprint) == "table" and item.fingerprint or {}
+  local nested = type(item.item) == "table" and item.item or {}
+  return cleanLabel(firstString(
+    item.displayName,
+    item.display_name,
+    item.label,
+    nested.displayName,
+    nested.label,
+    fp.displayName,
+    fp.label,
+    itemName(item)
+  ) or "unknown")
 end
 
 local function gatherText(value, depth)
