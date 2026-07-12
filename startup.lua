@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.8"
+local VERSION = "2026-07-11.9"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local TURTLE_UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_config"
@@ -509,6 +509,51 @@ local function getBufferCount(name)
   return count
 end
 
+local function isBufferSapling(item)
+  if type(item) ~= "table" then return false end
+  local name = string.lower(tostring(item.name or ""))
+  return string.find(name, "sapling", 1, true) ~= nil
+    or name == "minecraft:mangrove_propagule"
+end
+
+local function movedAmount(result, fallback)
+  return tonumber(result)
+    or tonumber(type(result) == "table" and (result.amount or result.count or result.moved))
+    or fallback
+    or 0
+end
+
+local function importSaplingsFromBuffer()
+  if not config.bufferPeripheral or config.bufferPeripheral == "" then return nil, "buffer unset" end
+  local inv = peripheral.wrap(config.bufferPeripheral)
+  if not inv or type(inv.list) ~= "function" then return nil, "buffer unavailable" end
+  if type(bridge.importItem) ~= "function" then return nil, "bridge importItem missing" end
+
+  local ok, list = pcall(function() return inv.list() end)
+  if not ok or type(list) ~= "table" then return nil, "buffer list failed" end
+
+  local total = 0
+  local lastError = nil
+  for _, item in pairs(list) do
+    if isBufferSapling(item) then
+      local count = tonumber(item.count) or 0
+      if count > 0 then
+        local importedOk, result = pcall(function()
+          return bridge.importItem({ name = item.name, count = count }, config.bridgeExportSide)
+        end)
+        if importedOk then
+          total = total + movedAmount(result, count)
+        else
+          lastError = tostring(result)
+        end
+      end
+    end
+  end
+
+  if lastError and total == 0 then return nil, lastError end
+  return total, lastError
+end
+
 local function exportSelected()
   if not state.farmOn or not state.selected then return end
   local available = saplingByName[state.selected] and saplingByName[state.selected].amount or 0
@@ -548,7 +593,17 @@ local function setFarmOn(value)
   state.farmOn = not not value
   redstone.setAnalogOutput(config.redstoneSide, state.farmOn and 1 or 0)
   saveState()
-  setStatus(state.farmOn and "Farm feed enabled" or "Farm feed disabled")
+  if state.farmOn then
+    setStatus("Farm feed enabled")
+  else
+    local moved, err = importSaplingsFromBuffer()
+    if moved then
+      setStatus("Farm off; pulled " .. fmt(moved) .. " saplings")
+      scanSaplings(true)
+    else
+      setStatus("Farm off; pull skipped: " .. tostring(err), err and true or nil)
+    end
+  end
 end
 
 local function sendTurtleCommand(cmd, extra)
