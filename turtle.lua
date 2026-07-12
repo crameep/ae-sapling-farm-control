@@ -2,7 +2,7 @@
 -- Place one block behind the northwest planting cell, one block above the farm, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.14"
+local VERSION = "2026-07-11.15"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -171,10 +171,28 @@ local function key(cx, cz)
   return tostring(cx) .. "," .. tostring(cz)
 end
 
-local function inspectDownName()
+local function emptyBlock()
+  return { name = "", tags = {} }
+end
+
+local function blockName(block)
+  if type(block) == "table" then return tostring(block.name or "") end
+  return tostring(block or "")
+end
+
+local function blockTags(block)
+  if type(block) == "table" and type(block.tags) == "table" then return block.tags end
+  return {}
+end
+
+local function inspectDownBlock()
   local ok, data = turtle.inspectDown()
-  if ok and data and data.name then return data.name end
-  return ""
+  if ok and data and data.name then return data end
+  return emptyBlock()
+end
+
+local function inspectDownName()
+  return blockName(inspectDownBlock())
 end
 
 local function inspectUpName()
@@ -184,18 +202,26 @@ local function inspectUpName()
 end
 
 local function isSapling(name)
-  return isSaplingName(name)
+  if isSaplingName(blockName(name)) then return true end
+  for tag, value in pairs(blockTags(name)) do
+    if value and string.find(string.lower(tostring(tag)), "sapling", 1, true) then
+      return true
+    end
+  end
+  return false
 end
 
 local function isTreeDebris(name)
-  return string.find(name, "leaves", 1, true) ~= nil
-    or string.find(name, "_log", 1, true) ~= nil
-    or string.find(name, "_wood", 1, true) ~= nil
+  local block = blockName(name)
+  return string.find(block, "leaves", 1, true) ~= nil
+    or string.find(block, "_log", 1, true) ~= nil
+    or string.find(block, "_wood", 1, true) ~= nil
 end
 
 local function isIn2x2(map, cx, cz)
   local name = map[key(cx, cz)]
   if not isSapling(name) then return false end
+  local id = blockName(name)
   local starts = {
     { cx - 1, cz - 1 },
     { cx, cz - 1 },
@@ -205,10 +231,10 @@ local function isIn2x2(map, cx, cz)
   for _, start in ipairs(starts) do
     local sx, sz = start[1], start[2]
     if sx >= 1 and sz >= 1 and sx < config.width and sz < config.depth then
-      if map[key(sx, sz)] == name
-        and map[key(sx + 1, sz)] == name
-        and map[key(sx, sz + 1)] == name
-        and map[key(sx + 1, sz + 1)] == name then
+      if blockName(map[key(sx, sz)]) == id
+        and blockName(map[key(sx + 1, sz)]) == id
+        and blockName(map[key(sx, sz + 1)]) == id
+        and blockName(map[key(sx + 1, sz + 1)]) == id then
         return true
       end
     end
@@ -335,7 +361,7 @@ local function cleanDarkOak()
         return false
       end
       goTo(col, row)
-      map[key(col, row)] = inspectDownName()
+      map[key(col, row)] = inspectDownBlock()
       local upName = inspectUpName()
       if isTreeDebris(upName) then
         targets[#targets + 1] = { x = col, z = row, side = "up", name = upName }
@@ -348,7 +374,7 @@ local function cleanDarkOak()
     for col = 1, config.width do
       local name = map[key(col, row)]
       if (isSapling(name) and not isIn2x2(map, col, row)) or isTreeDebris(name) then
-        targets[#targets + 1] = { x = col, z = row, side = "down", name = name }
+        targets[#targets + 1] = { x = col, z = row, side = "down", name = blockName(name) }
       end
     end
   end
@@ -378,8 +404,8 @@ local function cleanDarkOak()
           serviceHome()
           goTo(target.x, target.z)
         end
-        local current = inspectDownName()
-        if current == target.name and ((isSapling(current) and not isIn2x2(map, target.x, target.z)) or isTreeDebris(current)) then
+        local current = inspectDownBlock()
+        if blockName(current) == target.name and ((isSapling(current) and not isIn2x2(map, target.x, target.z)) or isTreeDebris(current)) then
           turtle.digDown()
           removed = removed + 1
           sendStatus("cleaning", i, cleanTotal, removed)
@@ -425,6 +451,23 @@ local function updateSelf(url)
   return true
 end
 
+local function printInspect()
+  local ok, data = turtle.inspect()
+  print("front: " .. tostring(ok and data and data.name or "air"))
+  ok, data = turtle.inspectUp()
+  print("up: " .. tostring(ok and data and data.name or "air"))
+  ok, data = turtle.inspectDown()
+  print("down: " .. tostring(ok and data and data.name or "air"))
+  if ok and type(data.tags) == "table" then
+    local tags = {}
+    for tag, value in pairs(data.tags) do
+      if value then tags[#tags + 1] = tostring(tag) end
+    end
+    table.sort(tags)
+    print("down tags: " .. table.concat(tags, ", "))
+  end
+end
+
 loadConfig()
 
 wirelessOpen = openWireless()
@@ -438,7 +481,7 @@ print("Sapling cleanup turtle " .. VERSION)
 print("Grid " .. tostring(config.width) .. "x" .. tostring(config.depth))
 print("Protocol: " .. config.protocol)
 sendStatus("idle")
-print("Commands: clean, home, stop, status, update, setup, exit")
+print("Commands: clean, inspect, home, stop, status, update, setup, exit")
 
 local running = true
 
@@ -474,6 +517,8 @@ local function commandLoop()
     local cmd = string.lower(read() or "")
     if cmd == "clean" then
       cleanDarkOak()
+    elseif cmd == "inspect" then
+      printInspect()
     elseif cmd == "home" then
       stopRequested = true
       serviceHome()
