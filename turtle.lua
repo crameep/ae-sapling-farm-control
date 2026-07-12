@@ -2,7 +2,7 @@
 -- Place one block behind the northwest planting cell, one block above the farm, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.13"
+local VERSION = "2026-07-11.14"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -326,6 +326,7 @@ local function cleanDarkOak()
 
   local map = {}
   local total = config.width * config.depth
+  local targets = {}
   for row = 1, config.depth do
     for col = 1, config.width do
       if pollControl() then
@@ -335,47 +336,56 @@ local function cleanDarkOak()
       end
       goTo(col, row)
       map[key(col, row)] = inspectDownName()
+      local upName = inspectUpName()
+      if isTreeDebris(upName) then
+        targets[#targets + 1] = { x = col, z = row, side = "up", name = upName }
+      end
       sendStatus("scanning", (row - 1) * config.width + col, total, 0)
     end
   end
 
-  local removed = 0
   for row = 1, config.depth do
     for col = 1, config.width do
-      if pollControl() then
-        serviceHome()
-        sendStatus("stopped", (row - 1) * config.width + col, total, removed)
-        return false
-      end
-      goTo(col, row)
-      local upName = inspectUpName()
-      if isTreeDebris(upName) then
-        if not hasFreeSlot() then
-          serviceHome()
-          goTo(col, row)
-        end
-        if isTreeDebris(inspectUpName()) then
-          turtle.digUp()
-          removed = removed + 1
-          sendStatus("cleaning", (row - 1) * config.width + col, total, removed)
-        end
-      end
-
       local name = map[key(col, row)]
       if (isSapling(name) and not isIn2x2(map, col, row)) or isTreeDebris(name) then
+        targets[#targets + 1] = { x = col, z = row, side = "down", name = name }
+      end
+    end
+  end
+
+  local removed = 0
+  local cleanTotal = #targets
+  for i, target in ipairs(targets) do
+      if pollControl() then
+        serviceHome()
+        sendStatus("stopped", i, cleanTotal, removed)
+        return false
+      end
+      goTo(target.x, target.z)
+      if target.side == "up" then
         if not hasFreeSlot() then
           serviceHome()
+          goTo(target.x, target.z)
         end
-        goTo(col, row)
+        local current = inspectUpName()
+        if current == target.name and isTreeDebris(current) then
+          turtle.digUp()
+          removed = removed + 1
+          sendStatus("cleaning", i, cleanTotal, removed)
+        end
+      elseif target.side == "down" then
+        if not hasFreeSlot() then
+          serviceHome()
+          goTo(target.x, target.z)
+        end
         local current = inspectDownName()
-        if current == name and ((isSapling(current) and not isIn2x2(map, col, row)) or isTreeDebris(current)) then
+        if current == target.name and ((isSapling(current) and not isIn2x2(map, target.x, target.z)) or isTreeDebris(current)) then
           turtle.digDown()
           removed = removed + 1
-          sendStatus("cleaning", (row - 1) * config.width + col, total, removed)
+          sendStatus("cleaning", i, cleanTotal, removed)
         end
       end
-      sendStatus("cleaning", (row - 1) * config.width + col, total, removed)
-    end
+      sendStatus("cleaning", i, cleanTotal, removed)
   end
 
   serviceHome()
