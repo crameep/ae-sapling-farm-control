@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.7"
+local VERSION = "2026-07-11.8"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local TURTLE_UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_config"
@@ -31,6 +31,7 @@ local state = {
   filter = "",
   turtleStatus = "unknown",
   turtleProgress = "",
+  turtleVersion = "?",
   turtleLastSeen = 0,
 }
 
@@ -463,7 +464,7 @@ local function draw()
   writeAt(2, 6, "AE Count: " .. fmt(state.selectedAmount) .. "  Target: " .. fmt(config.targetBuffer), colors.lightGray, colors.black)
   writeAt(2, 7, "Export side: " .. config.bridgeExportSide .. "  Buffer peripheral: " .. (config.bufferPeripheral ~= "" and config.bufferPeripheral or "unset"), colors.lightGray, colors.black)
   writeAt(2, 8, "Status: " .. tostring(state.status or ""), state.lastError and colors.red or colors.cyan, colors.black)
-  writeAt(2, 9, "Turtle: " .. tostring(state.turtleStatus or "unknown") .. " " .. tostring(state.turtleProgress or ""), colors.lightBlue, colors.black)
+  writeAt(2, 9, "Turtle " .. tostring(state.turtleVersion or "?") .. ": " .. tostring(state.turtleStatus or "unknown") .. " " .. tostring(state.turtleProgress or ""), colors.lightBlue, colors.black)
 
   button("target_minus", 2, 10, 8, "-64", colors.white, colors.gray)
   button("target_plus", 11, 10, 8, "+64", colors.white, colors.gray)
@@ -757,6 +758,7 @@ local function turtleStatusLoop()
       local _, msg = rednet.receive(config.turtleProtocol, 1)
       if type(msg) == "table" and msg.type == "sapfarm_status" then
         state.turtleStatus = tostring(msg.phase or "unknown")
+        state.turtleVersion = tostring(msg.version or "?")
         state.turtleLastSeen = os.clock()
         local current = tonumber(msg.current) or 0
         local total = tonumber(msg.total) or 0
