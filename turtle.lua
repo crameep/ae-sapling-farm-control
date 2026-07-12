@@ -2,7 +2,7 @@
 -- Place one block behind the northwest planting cell, one block above the farm, facing east.
 -- It walks the farm grid once, cleaning saplings and tree debris as it goes.
 
-local VERSION = "2026-07-11.19"
+local VERSION = "2026-07-11.20"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -17,6 +17,10 @@ local config = {}
 local x, z, dir = 0, 1, 1 -- 0 north, 1 east, 2 south, 3 west; home is x=0,z=1
 local wirelessOpen = false
 local stopRequested = false
+local cleanRequested = false
+local homeRequested = false
+local updateRequested = false
+local updateUrl = nil
 local status = {
   phase = "booting",
   current = 0,
@@ -534,18 +538,21 @@ local function rednetLoop()
       local sender, msg = rednet.receive(config.protocol, 1)
       if sender and type(msg) == "table" and msg.type == "sapfarm" then
         if msg.cmd == "clean_dark_oak" then
-          cleanDarkOak()
+          cleanRequested = true
+          sendStatus("queued")
         elseif msg.cmd == "turtle_home" then
           stopRequested = true
-          serviceHome()
-          sendStatus("home")
+          homeRequested = true
+          sendStatus("returning")
         elseif msg.cmd == "turtle_stop" then
           stopRequested = true
           sendStatus("stopped")
         elseif msg.cmd == "turtle_status" then
           sendStatus()
         elseif msg.cmd == "update_turtle" then
-          updateSelf(msg.url)
+          updateUrl = msg.url
+          updateRequested = true
+          sendStatus("updating")
         end
       end
     end
@@ -557,20 +564,22 @@ local function commandLoop()
     write("> ")
     local cmd = string.lower(read() or "")
     if cmd == "clean" then
-      cleanDarkOak()
+      cleanRequested = true
+      sendStatus("queued")
     elseif cmd == "inspect" then
       printInspect()
     elseif cmd == "home" then
       stopRequested = true
-      serviceHome()
-      sendStatus("home")
+      homeRequested = true
+      sendStatus("returning")
     elseif cmd == "stop" then
       stopRequested = true
       sendStatus("stopped")
     elseif cmd == "status" then
       sendStatus()
     elseif cmd == "update" then
-      updateSelf()
+      updateRequested = true
+      sendStatus("updating")
     elseif cmd == "setup" then
       setup()
     elseif cmd == "exit" then
@@ -580,4 +589,22 @@ local function commandLoop()
   end
 end
 
-parallel.waitForAny(commandLoop, rednetLoop)
+local function workerLoop()
+  while running do
+    if updateRequested then
+      updateRequested = false
+      updateSelf(updateUrl)
+    elseif homeRequested then
+      homeRequested = false
+      serviceHome()
+      sendStatus("home")
+    elseif cleanRequested then
+      cleanRequested = false
+      cleanDarkOak()
+    else
+      sleep(0.1)
+    end
+  end
+end
+
+parallel.waitForAny(commandLoop, rednetLoop, workerLoop)
