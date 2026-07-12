@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.9"
+local VERSION = "2026-07-11.10"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local TURTLE_UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_config"
@@ -529,25 +529,39 @@ local function importSaplingsFromBuffer()
   if not inv or type(inv.list) ~= "function" then return nil, "buffer unavailable" end
   if type(bridge.importItem) ~= "function" then return nil, "bridge importItem missing" end
 
-  local ok, list = pcall(function() return inv.list() end)
-  if not ok or type(list) ~= "table" then return nil, "buffer list failed" end
-
   local total = 0
   local lastError = nil
-  for _, item in pairs(list) do
-    if isBufferSapling(item) then
-      local count = tonumber(item.count) or 0
+  for _ = 1, 20 do
+    local ok, list = pcall(function() return inv.list() end)
+    if not ok or type(list) ~= "table" then return nil, "buffer list failed" end
+
+    local byName = {}
+    for _, item in pairs(list) do
+      if isBufferSapling(item) then
+        local count = tonumber(item.count) or 0
+        if count > 0 then
+          byName[item.name] = (byName[item.name] or 0) + count
+        end
+      end
+    end
+
+    local movedThisPass = 0
+    for name, count in pairs(byName) do
       if count > 0 then
         local importedOk, result = pcall(function()
-          return bridge.importItem({ name = item.name, count = count }, config.bridgeExportSide)
+          return bridge.importItem({ name = name, count = count }, config.bridgeExportSide)
         end)
         if importedOk then
-          total = total + movedAmount(result, count)
+          local moved = movedAmount(result, count)
+          total = total + moved
+          movedThisPass = movedThisPass + moved
         else
           lastError = tostring(result)
         end
       end
     end
+
+    if movedThisPass <= 0 then break end
   end
 
   if lastError and total == 0 then return nil, lastError end
