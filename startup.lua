@@ -1,7 +1,7 @@
 -- AE Sapling Farm Control for CC:Tweaked + Advanced Peripherals
 -- Standalone touchscreen controller for exporting selected AE2 saplings into a farm buffer.
 
-local VERSION = "2026-07-11.10"
+local VERSION = "2026-07-11.11"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/startup.lua"
 local TURTLE_UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_config"
@@ -37,6 +37,7 @@ local state = {
 
 local bridge = peripheral.find("me_bridge")
 if not bridge then error("No me_bridge found. Attach an Advanced Peripherals ME Bridge.") end
+local bridgeName = peripheral.getName(bridge)
 
 local function copyDefaults()
   local t = {}
@@ -523,17 +524,52 @@ local function movedAmount(result, fallback)
     or 0
 end
 
+local function pushSaplingsToBridge(inv, list)
+  if type(inv.pushItems) ~= "function" or not bridgeName then return 0, nil end
+
+  local total = 0
+  local lastError = nil
+  for slot, item in pairs(list) do
+    if isBufferSapling(item) then
+      local count = tonumber(item.count) or 0
+      local fromSlot = tonumber(slot)
+      if fromSlot and count > 0 then
+        local ok, result = pcall(function()
+          return inv.pushItems(bridgeName, fromSlot, count)
+        end)
+        if ok then
+          total = total + movedAmount(result, 0)
+        else
+          lastError = tostring(result)
+        end
+      end
+    end
+  end
+
+  return total, lastError
+end
+
 local function importSaplingsFromBuffer()
   if not config.bufferPeripheral or config.bufferPeripheral == "" then return nil, "buffer unset" end
   local inv = peripheral.wrap(config.bufferPeripheral)
   if not inv or type(inv.list) ~= "function" then return nil, "buffer unavailable" end
-  if type(bridge.importItem) ~= "function" then return nil, "bridge importItem missing" end
+  if type(inv.pushItems) ~= "function" and type(bridge.importItem) ~= "function" then
+    return nil, "no buffer pushItems or bridge importItem"
+  end
 
   local total = 0
   local lastError = nil
   for _ = 1, 20 do
     local ok, list = pcall(function() return inv.list() end)
     if not ok or type(list) ~= "table" then return nil, "buffer list failed" end
+
+    local directMoved, directError = pushSaplingsToBridge(inv, list)
+    total = total + directMoved
+    if directError then lastError = directError end
+    if directMoved > 0 then
+      os.sleep(0)
+    else
+      if type(bridge.importItem) ~= "function" then break end
 
     local byName = {}
     for _, item in pairs(list) do
@@ -562,6 +598,7 @@ local function importSaplingsFromBuffer()
     end
 
     if movedThisPass <= 0 then break end
+    end
   end
 
   if lastError and total == 0 then return nil, lastError end
