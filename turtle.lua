@@ -1,8 +1,8 @@
 -- Sapling Farm Cleanup Turtle
--- Place one block behind the northwest planting cell, one block above the farm, facing east.
+-- Place one block south of the first planting cell, one block above the farm, facing north.
 -- It walks the farm grid once, cleaning saplings and tree debris as it goes.
 
-local VERSION = "2026-07-11.20"
+local VERSION = "2026-07-11.21"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -14,7 +14,7 @@ local defaults = {
 }
 
 local config = {}
-local x, z, dir = 0, 1, 1 -- 0 north, 1 east, 2 south, 3 west; home is x=0,z=1
+local x, z, dir = 1, 0, 0 -- 0 north, 1 east, 2 south, 3 west; home is x=1,z=0
 local wirelessOpen = false
 local stopRequested = false
 local cleanRequested = false
@@ -184,8 +184,8 @@ local function goTo(tx, tz, ignoreStop)
 end
 
 local function goHome()
-  goTo(0, 1, true)
-  face(1)
+  goTo(1, 0, true)
+  face(0)
 end
 
 local function checkFuel()
@@ -397,7 +397,7 @@ local function pollControl()
 end
 
 local function cleanDarkOak()
-  x, z, dir = 0, 1, 1
+  x, z, dir = 1, 0, 0
   stopRequested = false
   refuelFromDown()
   refuelFromInventory()
@@ -421,7 +421,7 @@ local function cleanDarkOak()
         sendStatus("stopped", scanIndex, total, 0)
         return false
       end
-      if not goTo(col, row) then
+      if not goTo(col, -row) then
         serviceHome()
         sendStatus("stopped", scanIndex, total, removed)
         return false
@@ -430,7 +430,7 @@ local function cleanDarkOak()
       if isTreeDebris(inspectUpName()) then
         if not hasFreeSlot() then
           serviceHome()
-          if not goTo(col, row) then
+          if not goTo(col, -row) then
             serviceHome()
             sendStatus("stopped", scanIndex, total, removed)
             return false
@@ -443,7 +443,7 @@ local function cleanDarkOak()
       if isSapling(current) or isTreeDebris(current) then
         if not hasFreeSlot() then
           serviceHome()
-          if not goTo(col, row) then
+          if not goTo(col, -row) then
             serviceHome()
             sendStatus("stopped", scanIndex, total, removed)
             return false
