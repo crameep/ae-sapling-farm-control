@@ -2,7 +2,7 @@
 -- Place one block behind the northwest planting cell, one block above the farm, facing east.
 -- It maps the farm grid, then breaks saplings that are not part of a matching 2x2.
 
-local VERSION = "2026-07-11.16"
+local VERSION = "2026-07-11.17"
 local UPDATE_URL = "https://raw.githubusercontent.com/crameep/ae-sapling-farm-control/main/turtle.lua"
 local CONFIG_FILE = ".sapfarm_turtle_config"
 
@@ -104,6 +104,17 @@ local function face(target)
   end
 end
 
+local function pollControlMessage(timeout)
+  if not wirelessOpen then return stopRequested end
+  local _, msg = rednet.receive(config.protocol, timeout or 0.05)
+  if type(msg) == "table" and msg.type == "sapfarm" then
+    if msg.cmd == "turtle_stop" or msg.cmd == "turtle_home" then
+      stopRequested = true
+    end
+  end
+  return stopRequested
+end
+
 local function isSaplingName(name)
   return string.find(name, "sapling", 1, true) ~= nil
     or name == "minecraft:mangrove_propagule"
@@ -116,9 +127,11 @@ local function isSafeForwardDig(name)
     or string.find(name, "_wood", 1, true) ~= nil
 end
 
-local function forward()
+local function forward(ignoreStop)
+  if not ignoreStop and pollControlMessage(0.05) then return false end
   local tries = 0
   while not turtle.forward() do
+    if not ignoreStop and pollControlMessage(0.05) then return false end
     tries = tries + 1
     if tries > 8 then error("blocked while moving") end
     local hasBlock, data = turtle.inspect()
@@ -139,17 +152,35 @@ local function forward()
   elseif dir == 1 then x = x + 1
   elseif dir == 2 then z = z + 1
   else x = x - 1 end
+  return true
 end
 
-local function goTo(tx, tz)
-  while x < tx do face(1); forward() end
-  while x > tx do face(3); forward() end
-  while z < tz do face(2); forward() end
-  while z > tz do face(0); forward() end
+local function goTo(tx, tz, ignoreStop)
+  while x < tx do
+    if not ignoreStop and stopRequested then return false end
+    face(1)
+    if not forward(ignoreStop) then return false end
+  end
+  while x > tx do
+    if not ignoreStop and stopRequested then return false end
+    face(3)
+    if not forward(ignoreStop) then return false end
+  end
+  while z < tz do
+    if not ignoreStop and stopRequested then return false end
+    face(2)
+    if not forward(ignoreStop) then return false end
+  end
+  while z > tz do
+    if not ignoreStop and stopRequested then return false end
+    face(0)
+    if not forward(ignoreStop) then return false end
+  end
+  return true
 end
 
 local function goHome()
-  goTo(0, 1)
+  goTo(0, 1, true)
   face(1)
 end
 
@@ -365,7 +396,11 @@ local function cleanDarkOak()
         sendStatus("stopped", scanIndex, total, 0)
         return false
       end
-      goTo(col, row)
+      if not goTo(col, row) then
+        serviceHome()
+        sendStatus("stopped", scanIndex, total, 0)
+        return false
+      end
       map[key(col, row)] = inspectDownBlock()
       local upName = inspectUpName()
       if isTreeDebris(upName) then
@@ -392,11 +427,19 @@ local function cleanDarkOak()
         sendStatus("stopped", i, cleanTotal, removed)
         return false
       end
-      goTo(target.x, target.z)
+      if not goTo(target.x, target.z) then
+        serviceHome()
+        sendStatus("stopped", i, cleanTotal, removed)
+        return false
+      end
       if target.side == "up" then
         if not hasFreeSlot() then
           serviceHome()
-          goTo(target.x, target.z)
+          if not goTo(target.x, target.z) then
+            serviceHome()
+            sendStatus("stopped", i, cleanTotal, removed)
+            return false
+          end
         end
         local current = inspectUpName()
         if current == target.name and isTreeDebris(current) then
@@ -407,7 +450,11 @@ local function cleanDarkOak()
       elseif target.side == "down" then
         if not hasFreeSlot() then
           serviceHome()
-          goTo(target.x, target.z)
+          if not goTo(target.x, target.z) then
+            serviceHome()
+            sendStatus("stopped", i, cleanTotal, removed)
+            return false
+          end
         end
         local current = inspectDownBlock()
         if blockName(current) == target.name and ((isSapling(current) and not isIn2x2(map, target.x, target.z)) or isTreeDebris(current)) then
