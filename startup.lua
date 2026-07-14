@@ -406,13 +406,23 @@ local function fillLine(y, bg)
   writeAt(1, y, string.rep(" ", w), colors.white, bg or colors.black)
 end
 
-local function button(id, x, y, w, label, fg, bg)
+local function buttonRect(id, x, y, w, h, label, fg, bg)
   label = tostring(label or "")
-  buttons[#buttons + 1] = { id = id, x1 = x, y1 = y, x2 = x + w - 1, y2 = y }
+  h = math.max(1, tonumber(h) or 1)
+  buttons[#buttons + 1] = { id = id, x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1 }
   local pad = math.max(0, w - #label)
   local left = math.floor(pad / 2)
   local right = pad - left
-  writeAt(x, y, string.rep(" ", left) .. label .. string.rep(" ", right), fg or colors.black, bg or colors.gray)
+  local labelRow = y + math.floor((h - 1) / 2)
+  for row = y, y + h - 1 do
+    local text = string.rep(" ", w)
+    if row == labelRow then text = string.rep(" ", left) .. label .. string.rep(" ", right) end
+    writeAt(x, row, text, fg or colors.black, bg or colors.gray)
+  end
+end
+
+local function button(id, x, y, w, label, fg, bg)
+  buttonRect(id, x, y, w, 1, label, fg, bg)
 end
 
 local function hitButton(x, y)
@@ -474,15 +484,14 @@ local function draw()
   writeAt(40, 10, "Batch " .. fmt(config.exportBatch), colors.lightGray, colors.black)
 
   local list = filteredSaplings()
-  local rows = math.max(1, h - 13)
+  local navTop = math.min(h, math.max(14, h - 1))
+  local rows = math.max(1, navTop - 13)
   local pages = math.max(1, math.ceil(#list / rows))
   state.page = clamp(tonumber(state.page) or 1, 1, pages)
   local start = (state.page - 1) * rows + 1
 
   fillLine(12, colors.gray)
-  writeAt(2, 12, "Saplings " .. tostring(state.page) .. "/" .. tostring(pages), colors.white, colors.gray)
-  button("prev", math.max(1, w - 17), 12, 7, "PREV", colors.white, colors.gray)
-  button("next", math.max(1, w - 9), 12, 7, "NEXT", colors.white, colors.gray)
+  writeAt(2, 12, "Saplings", colors.white, colors.gray)
 
   for i = 0, rows - 1 do
     local item = list[start + i]
@@ -495,6 +504,15 @@ local function draw()
       button("select:" .. item.name, 2, y, w - 2, string.format("%-" .. tostring(maxLabel) .. "s %8s", label, fmt(item.amount)), colors.white, bg)
     end
   end
+
+  local navHeight = math.min(2, math.max(1, h - navTop + 1))
+  local half = math.max(8, math.floor((w - 6) / 2))
+  fillLine(navTop, colors.gray)
+  if navHeight > 1 then fillLine(navTop + 1, colors.gray) end
+  buttonRect("prev", 2, navTop, half, navHeight, "< PREV", colors.white, colors.gray)
+  buttonRect("next", math.max(2, w - half), navTop, half, navHeight, "NEXT >", colors.white, colors.gray)
+  local pageText = tostring(state.page) .. "/" .. tostring(pages)
+  writeAt(math.max(1, math.floor((w - #pageText) / 2) + 1), navTop, pageText, colors.white, colors.gray)
 end
 
 local function getBufferCount(name)

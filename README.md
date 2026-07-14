@@ -67,6 +67,7 @@ If you do not set a buffer peripheral name, the app still works, but it cannot k
 - `UPDATE`: downloads the latest `startup.lua` from this repo and reboots
 - `SETUP`: re-run setup
 - Tap any sapling row to select it
+- Bottom `< PREV` / `NEXT >`: switch sapling pages
 - `-64` / `+64`: adjust target buffer
 - `B-16` / `B+16`: adjust export batch
 
